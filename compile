@@ -1,8 +1,0 @@
-export PKG_CONFIG_PATH=/home/ashehata/Applications/Sphinx/sphinxinstall/lib/pkgconfig/
-
-gcc -Wall -Werror -g -o yasp yasp.c cJSON.c -I ../pocketsphinx/src/libpocketsphinx/  \
-    -I ../pocketsphinx/src/libpocketsphinx/ \
-    -I ../sphinxbase/include/sphinxbase/ \
-    -DMODELDIR=\"`pkg-config --variable=modeldir pocketsphinx`\" \
-    `pkg-config --cflags --libs pocketsphinx sphinxbase`
-

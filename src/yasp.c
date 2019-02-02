@@ -554,6 +554,7 @@ void yasp_print_segment_list(struct list_head *seg_list)
 	if (!seg_list)
 		return;
 
+	E_INFO("XXXXXXXXXXXXXXXXXXXXXX\n");
 	E_INFO("%s %s %s %s %s %s %s %s\n",
 		"word", "start", "end", "pprob", "ascr", "lscr",
 		"lback", "duration");
@@ -564,6 +565,7 @@ void yasp_print_segment_list(struct list_head *seg_list)
 			word->ph_prob, word->ph_lscr, word->ph_ascr,
 			word->ph_lback, word->ph_duration);
 	}
+	E_INFO("XXXXXXXXXXXXXXXXXXXXXX\n\n\n");
 
 }
 
@@ -574,6 +576,7 @@ void yasp_pprint_segment_list(struct list_head *seg_list)
 	if (!seg_list)
 		return;
 
+	E_INFO("XXXXXXXXXXXXXXXXXXXXXX\n");
 	E_INFO("%-20s %-5s %-5s %-5s %-10s %-10s %-3s\n",
 		"word", "start", "end", "pprob", "ascr", "lscr",
 		"lback");
@@ -584,6 +587,7 @@ void yasp_pprint_segment_list(struct list_head *seg_list)
 			word->ph_prob, word->ph_lscr, word->ph_ascr,
 			word->ph_lback);
 	}
+	E_INFO("XXXXXXXXXXXXXXXXXXXXXX\n\n\n");
 
 }
 
@@ -622,6 +626,8 @@ int yasp_interpret_hypothesis(const char *faudio, const char *ftranscript,
 
 out:
 	rc = interpret(fh, word_list, transcript_fh, true);
+
+	yasp_print_segment_list(word_list);
 
 	finish_logging(&logs);
 
@@ -852,7 +858,8 @@ int yasp_create_json(struct list_head *word_list,
 	cur = phoneme_list;
 	list_for_each_entry(word, word_list, ph_on_list) {
 		if (!strcmp(word->ph_word, "<s>") ||
-		    !strcmp(word->ph_word, "</s>"))
+		    !strcmp(word->ph_word, "</s>") ||
+		    !strcmp(word->ph_word, "<sil>"))
 			continue;
 		jword = cJSON_CreateObject();
 		if (!cJSON_AddStringToObject(jword, "word", word->ph_word))
@@ -982,10 +989,8 @@ int yasp_interpret(const char *audioFile, const char *transcript,
 
 out:
 
-	E_INFO("*********************\n");
 	yasp_print_segment_list(&word_list);
 	yasp_print_segment_list(&phoneme_list);
-	E_INFO("*********************\n");
 
 	yasp_free_segment_list(&word_list);
 	yasp_free_segment_list(&phoneme_list);
@@ -1035,6 +1040,9 @@ main(int argc, char *argv[])
 	const char *genpath = NULL;
 	const char *output = NULL;
 	const char *logfile = "default_log";
+	struct list_head word_list;
+
+	INIT_LIST_HEAD(&word_list);
 
 	const char *const short_options = "a:t:h:o:g:l:";
 	static const struct option long_options[] = {
@@ -1082,6 +1090,10 @@ main(int argc, char *argv[])
 	if (rc)
 		E_ERROR("Failed to interpret audio file %s\n",
 			audioFile);
+
+	rc = yasp_interpret_hypothesis(audioFile, transcript, logfile,
+				       &word_list);
+	yasp_free_segment_list(&word_list);
 
 	return rc;
 }
