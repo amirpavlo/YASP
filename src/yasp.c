@@ -34,41 +34,15 @@
 #include "yasp.h"
 #include "cJSON.h"
 
-static void setup_logging(struct yasp_logs *logs, const char *logfile)
+static void redirect_ps_log(err_cb_f cb, struct yasp_logs *logs)
 {
-	char *err_logfile;
-	const char *err_ext = "_err";
+	/* disable pocketsphinx logging */
+	err_set_logfp(NULL);
 
-	if (!logfile || !logs)
+	if (!cb || !logs || !logs->lg_error || !logs->lg_info)
 		return;
 
-	err_logfile = calloc(1, strlen(logfile) + strlen(err_ext) + 1);
-	if (!err_logfile) {
-		fprintf(stderr, "no memory\n");
-		return;
-	}
-
-	strcpy(err_logfile, logfile);
-	strcat(err_logfile, err_ext);
-	logs->lg_error = fopen(err_logfile, "a");
-	logs->lg_info = fopen(logfile, "a");
-
-	if (!logs->lg_error || !logs->lg_info)
-		return;
-
-	yasp_redirect_ps_log(yasp_log, logs);
-}
-
-static void finish_logging(struct yasp_logs *logs)
-{
-	if (!logs)
-		return;
-
-	if (logs->lg_error)
-		fclose(logs->lg_error);
-
-	if (logs->lg_info)
-		fclose(logs->lg_info);
+	err_set_callback(cb, logs);
 }
 
 static ps_decoder_t *get_ps(bool word, cmd_ln_t **config_pp)
@@ -109,49 +83,6 @@ static ps_decoder_t *get_ps(bool word, cmd_ln_t **config_pp)
 	}
 
 	return ps;
-}
-
-static int align_hypothesis_transcript(ps_decoder_t *ps, FILE *transcript_fh)
-{
-	int nchars;
-	int rc = 0;
-	char *text = NULL;
-
-	if (!ps || !transcript_fh)
-		return 0;
-
-	/* go to the beginning of the file */
-	fseek(transcript_fh, 0, SEEK_END);
-	/* count the number of characters in the file */
-	nchars = ftell(transcript_fh);
-	/* allocate the buffer for the transcript */
-	text = calloc(nchars + 1, 1);
-	/* seek to the beginning of the file in prep to read */
-	fseek(transcript_fh, 0, SEEK_SET);
-	/* read file */
-	if (fread(text, 1, nchars, transcript_fh) != nchars) {
-		E_ERROR("Failed to fully read transcript file\n");
-		rc = -1;
-		goto failed;
-	}
-
-	/* Always use the same name so that we don't leak memory (hopefully). */
-	if (ps_set_align(ps, "align", text)) {
-		E_ERROR("ps_set_align() failed\n");
-		rc= -1;
-		goto failed;
-	}
-
-	if (ps_set_search(ps, "align")) {
-		E_ERROR("ps_set_search() failed\n");
-		rc = -1;
-	}
-
-failed:
-	if (text)
-		free(text);
-
-	return rc;
 }
 
 static int parse_segments(ps_decoder_t *ps, struct list_head *seg_list)
@@ -319,40 +250,25 @@ static void *cache_file(FILE *fh, size_t *size)
 	return buf;
 }
 
-static int parse_speech(FILE *fh, FILE *transcript_fh,
-			struct list_head *word_list,
-			struct list_head *phoneme_list)
+static int interpret(FILE *fh, struct list_head *word_list,
+		     struct list_head *phoneme_list,
+		     FILE *transcript_fh, bool word)
 {
-	int16 *buf;
-	int16 const *bptr;
+	int16 buf[512];
 	int rc = 0;
-	int nfr;
-	ps_decoder_t *ps;
+	ps_decoder_t *ps = NULL;
 	cmd_ln_t *config = NULL;
-	struct list_head test;
-	size_t nsamp;
-	char *text = NULL;
+	char *text;
 	ps_alignment_t *alignment = NULL;
 
-	INIT_LIST_HEAD(&test);
+	ps = get_ps(word, &config);
+	if (!ps)
+		goto out;
 
 	text = cache_file(transcript_fh, NULL);
-	if (!text) {
-		rc = -1;
+	if (!text)
 		goto out;
-	}
 
-	ps = get_ps(false, &config);
-	if (!ps) {
-		E_ERROR("FAILED to get decoder\n");
-		rc = -1;
-		goto out;
-	}
-
-	/*
-	 * start alignment. In order to get the phoneme alignment I had to
-	 * go past the pocketsphinx provided API.
-	 */
 	rc = set_align(ps, "align", text, &alignment);
 	if (rc) {
 		E_ERROR("set_align failed\n");
@@ -365,89 +281,6 @@ static int parse_speech(FILE *fh, FILE *transcript_fh,
 		goto out;
 	}
 
-	/* start recognition */
-	rc = acmod_start_utt(ps->acmod);
-	if (rc) {
-		E_ERROR("FAILED test_align start_utt\n");
-		goto out;
-	}
-
-	ps_search_start(ps->search);
-
-	buf = cache_file(fh, &nsamp);
-	if (!buf) {
-		rc = -1;
-		goto out;
-	}
-	/*
-	 * nsamp comes in as the number of bytes. But we pass in int16
-	 * which is 2 bytes, so we need to adjust the initial size of the
-	 * buffer to account for that
-	 */
-	nsamp /= 2;
-	bptr = buf;
-	/*
-	 * TODO: this is not great as we need to read the entire audio
-	 * file, which is not optimal if the file is large
-	 */
-	while ((nfr = acmod_process_raw(ps->acmod, &bptr, &nsamp,
-					true)) > 0 || nsamp > 0) {
-		while(ps->acmod->n_feat_frame > 0) {
-			ps_search_step(ps->search,
-					ps->acmod->output_frame);
-			acmod_advance(ps->acmod);
-		}
-	}
-	rc = ps_search_finish(ps->search);
-	if (rc) {
-		E_ERROR("phoneme search failed\n");
-		rc = -1;
-		goto out;
-	}
-
-	rc = parse_segments(ps, word_list);
-	if (rc) {
-		E_ERROR("failed to parse word_list\n");
-		goto out;
-	}
-
-	rc = parse_alignment(ps, alignment, phoneme_list);
-	if (rc)
-		E_ERROR("failed to parse alignment into phoneme"
-			" list\n");
-
-out:
-	if (alignment)
-		ps_alignment_free(alignment);
-	if (buf)
-		free(buf);
-	if (ps)
-		ps_free(ps);
-	if (config)
-		cmd_ln_free_r(config);
-	if (text)
-		free(text);
-
-	return 0;
-}
-
-static int interpret(FILE *fh, struct list_head *list,
-		     FILE *transcript_fh, bool word)
-{
-	int16 buf[512];
-	int rc = 0;
-	ps_decoder_t *ps = NULL;
-	cmd_ln_t *config = NULL;
-
-	ps = get_ps(word, &config);
-	if (!ps)
-		goto out;
-
-	/* align words */
-	rc = align_hypothesis_transcript(ps, transcript_fh);
-	if (rc)
-		goto out;
-
 	rc = ps_start_utt(ps);
 
 	while (!feof(fh)) {
@@ -458,14 +291,23 @@ static int interpret(FILE *fh, struct list_head *list,
 
 	rc = ps_end_utt(ps);
 
-	if (parse_segments(ps, list))
+	if (parse_segments(ps, word_list))
 		rc = -1;
 
+	if (!phoneme_list)
+		goto out;
+
+	rc = parse_alignment(ps, alignment, phoneme_list);
+
 out:
+	if (alignment)
+		ps_alignment_free(alignment);
 	if (ps)
 		ps_free(ps);
 	if (config)
 		cmd_ln_free_r(config);
+	if (text)
+		free(text);
 
 	return rc;
 }
@@ -484,8 +326,13 @@ static FILE *write_hypothesis_2_file(struct list_head *words,
 
 	fh = fopen(fname, "w");
 
-	list_for_each_entry(word, words, ph_on_list)
+	list_for_each_entry(word, words, ph_on_list) {
+		if (!strcmp(word->ph_word, "<s>") ||
+		    !strcmp(word->ph_word, "</s>") ||
+		    !strcmp(word->ph_word, "<sil>"))
+			continue;
 		fprintf(fh, "%s ", word->ph_word);
+	}
 
 	fclose(fh);
 
@@ -494,14 +341,14 @@ static FILE *write_hypothesis_2_file(struct list_head *words,
 	return fh;
 }
 
-static int get_phonemes(FILE *fh, FILE *transcript_fh,
-			struct list_head *word_list,
-			struct list_head *phoneme_list,
-			const char *gen_path)
+static int get_utterance(FILE *fh, FILE *transcript_fh,
+			 struct list_head *word_list,
+			 struct list_head *phoneme_list,
+			 const char *gen_path)
 {
 	int rc;
 	struct list_head local_hypothesis;
-	FILE *local_transcript = transcript_fh;
+	FILE *local_fh = transcript_fh;
 
 	INIT_LIST_HEAD(&local_hypothesis);
 
@@ -511,21 +358,21 @@ static int get_phonemes(FILE *fh, FILE *transcript_fh,
 	 * that to get the phonemes
 	 */
 	if (!transcript_fh) {
-		rc = interpret(fh, &local_hypothesis, NULL, true);
+		rc = interpret(fh, &local_hypothesis, NULL, NULL, true);
 		if (rc)
 			return rc;
-		local_transcript
+		local_fh
 		  = write_hypothesis_2_file(&local_hypothesis, gen_path);
 		yasp_free_segment_list(&local_hypothesis);
-		if (!local_transcript)
+		if (!local_fh)
 			return rc;
 	}
 
-	rc = parse_speech(fh, local_transcript, word_list,
-			  phoneme_list);
+	rc = interpret(fh, word_list, phoneme_list, local_fh,
+		       true);
 
-	if (!transcript_fh)
-		fclose(local_transcript);
+	if (!local_fh)
+		fclose(local_fh);
 
 	return rc;
 }
@@ -589,96 +436,6 @@ void yasp_pprint_segment_list(struct list_head *seg_list)
 	}
 	E_INFO("XXXXXXXXXXXXXXXXXXXXXX\n\n\n");
 
-}
-
-int yasp_interpret_hypothesis(const char *faudio, const char *ftranscript,
-			      const char *logfile,
-			      struct list_head *word_list)
-{
-	FILE *fh = NULL;
-	FILE *transcript_fh = NULL;
-	struct yasp_logs logs;
-	int rc;
-
-	setup_logging(&logs, logfile);
-
-	if (!word_list) {
-		E_ERROR("bad parameter\n");
-		return -EINVAL;
-	}
-
-	fh = fopen(faudio, "rb");
-	if (!fh) {
-		E_ERROR("Failed to open file %s. errno %s\n",
-			faudio, strerror(errno));
-		return -1;
-	}
-
-	if (!ftranscript)
-		goto out;
-
-	transcript_fh = fopen(ftranscript, "r");
-	if (!fh) {
-		E_ERROR("Failed to open transcript %s. errno %s\n",
-			ftranscript, strerror(errno));
-		return -1;
-	}
-
-out:
-	rc = interpret(fh, word_list, transcript_fh, true);
-
-	yasp_print_segment_list(word_list);
-
-	finish_logging(&logs);
-
-	return rc;
-}
-
-int yasp_interpret_phonemes(const char *faudio, const char *ftranscript,
-			    const char *logfile,
-			    struct list_head *phoneme_list)
-{
-	FILE *fh = NULL;
-	FILE *transcript_fh = NULL;
-	struct list_head word_list;
-	struct yasp_logs logs;
-	int rc;
-
-	INIT_LIST_HEAD(&word_list);
-
-	if (!phoneme_list) {
-		E_ERROR("bad parameter\n");
-		return -EINVAL;
-	}
-
-	setup_logging(&logs, logfile);
-
-	fh = fopen(faudio, "rb");
-	if (!fh) {
-		E_ERROR("Failed to open file %s. errno %s\n",
-			faudio, strerror(errno));
-		return -1;
-	}
-
-	if (!ftranscript)
-		goto out;
-
-	transcript_fh = fopen(ftranscript, "r");
-	if (!fh) {
-		E_ERROR("Failed to open transcript %s. errno %s\n",
-			ftranscript, strerror(errno));
-		return -1;
-	}
-
-out:
-	rc = get_phonemes(fh, transcript_fh, &word_list, phoneme_list,
-			  NULL);
-
-	yasp_free_segment_list(&word_list);
-
-	finish_logging(&logs);
-
-	return rc;
 }
 
 
@@ -754,11 +511,44 @@ failed:
 	return -1;
 }
 
+/*
+ * the assumption here is that word_list and phoneme list are generated
+ * via the same transcript (whether user provided or auto-generated), so
+ * they should match exactly
+ *
+ * Phoneme list will have relative start time within the utterance and
+ * the correct duration for each phoneme. This function will correct the
+ * time by adding the offset
+ */
+static int consolidate_utterance(struct list_head *word_list,
+				 struct list_head *phoneme_list)
+{
+	struct yasp_word *word;
+	struct yasp_word *phoneme;
+	int offset = -1;
+
+	if (!word_list || !phoneme_list)
+		return -1;
+
+	list_for_each_entry(word, word_list, ph_on_list) {
+		if (!strcmp(word->ph_word, "<s>"))
+			offset = word->ph_start;
+	}
+
+	if (offset == -1)
+		return -1;
+
+	list_for_each_entry(phoneme, phoneme_list, ph_on_list)
+		phoneme->ph_start += offset;
+
+	return 0;
+}
+
 static int
 consolidate(const char *audioFile, const char *transcript,
 	    struct list_head *word_list,
 	    struct list_head *phoneme_list,
-	    const char *path)
+	    const char *genpath)
 {
 	FILE *fh;
 	FILE *transcript_fh = NULL;
@@ -788,8 +578,15 @@ consolidate(const char *audioFile, const char *transcript,
 	}
 
 	/* Get the phonemes */
-	rc = get_phonemes(fh, transcript_fh, word_list, phoneme_list,
-			  path);
+	rc = get_utterance(fh, transcript_fh, word_list, phoneme_list,
+			   genpath);
+
+	if (!rc) {
+		rc = consolidate_utterance(word_list, phoneme_list);
+		if (rc)
+			E_ERROR("Timing incompatibility between word and "
+				"phoneme lists. Result maybe unreliable\n");
+	}
 
 	/* close files */
 	fclose(fh);
@@ -924,50 +721,74 @@ end:
 	return 0;
 }
 
-void yasp_log(void *user_data, err_lvl_t el, const char *fmt, ...)
+int yasp_interpret_hypothesis(const char *faudio, const char *ftranscript,
+			      const char *genpath,
+			      struct list_head *word_list)
 {
-	struct yasp_logs *logs = user_data;
-	va_list ap;
+	struct list_head phoneme_list;
+	int rc;
 
-	if (!logs || !logs->lg_error || !logs->lg_info)
-		return;
+	INIT_LIST_HEAD(&phoneme_list);
 
-	va_start(ap, fmt);
-	if (el == ERR_INFO || el == ERR_DEBUG ||
-	    el == ERR_INFOCONT)
-		vfprintf(logs->lg_info, fmt, ap);
-	else
-		vfprintf(logs->lg_error, fmt, ap);
-	va_end(ap);
+	if (!word_list) {
+		E_ERROR("bad parameter\n");
+		return -EINVAL;
+	}
+
+	/*
+	 * Parse audio file
+	 */
+	rc = consolidate(faudio, ftranscript, word_list,
+			 &phoneme_list, genpath);
+	if (rc)
+		E_ERROR("Failed to parse speech clip %s\n",
+			faudio);
+
+	yasp_free_segment_list(&phoneme_list);
+
+	return rc;
 }
 
-void yasp_redirect_ps_log(err_cb_f cb, struct yasp_logs *logs)
+int yasp_interpret_phonemes(const char *faudio, const char *ftranscript,
+			    const char *genpath,
+			    struct list_head *phoneme_list)
 {
-	/* disable pocketsphinx logging */
-	err_set_logfp(NULL);
+	struct list_head word_list;
+	int rc;
 
-	if (!cb || !logs || !logs->lg_error || !logs->lg_info)
-		return;
+	INIT_LIST_HEAD(&word_list);
 
-	err_set_callback(cb, logs);
+	if (!phoneme_list) {
+		E_ERROR("bad parameter\n");
+		return -EINVAL;
+	}
+
+	/*
+	 * Parse audio file
+	 */
+	rc = consolidate(faudio, ftranscript, &word_list,
+			 phoneme_list, genpath);
+	if (rc)
+		E_ERROR("Failed to parse speech clip %s\n",
+			faudio);
+
+	yasp_free_segment_list(&word_list);
+
+	return rc;
 }
 
 int yasp_interpret(const char *audioFile, const char *transcript,
-		   const char *output, const char *genpath,
-		   const char *logfile)
+		   const char *output, const char *genpath)
 {
 	int rc;
-	struct yasp_logs logs;
 	struct list_head word_list;
 	struct list_head phoneme_list;
 
 	INIT_LIST_HEAD(&word_list);
 	INIT_LIST_HEAD(&phoneme_list);
 
-	setup_logging(&logs, logfile);
-
 	/*
-	 * Parse a list of the phonemes for later consolidation
+	 * Parse audio file
 	 */
 	rc = consolidate(audioFile, transcript, &word_list,
 			 &phoneme_list, genpath);
@@ -995,29 +816,23 @@ out:
 	yasp_free_segment_list(&word_list);
 	yasp_free_segment_list(&phoneme_list);
 
-	finish_logging(&logs);
-
 	return rc;
 }
 
 int yasp_interpret_breadown(const char *audioFile, const char *transcript,
 			    const char *output, const char *genpath,
-			    const char *logfile,
 			    struct list_head *word_list,
 			    struct list_head *phoneme_list)
 {
 	int rc;
-	struct yasp_logs logs;
 
 	if (!word_list || !phoneme_list) {
 		E_ERROR("bad arguments\n");
 		return -1;
 	}
 
-	setup_logging(&logs, logfile);
-
 	/*
-	 * Parse a list of the phonemes for later consolidation
+	 * Parse audio file
 	 */
 	rc = consolidate(audioFile, transcript, word_list,
 			 phoneme_list, genpath);
@@ -1025,9 +840,67 @@ int yasp_interpret_breadown(const char *audioFile, const char *transcript,
 		E_ERROR("Failed to parse speech clip %s\n",
 			audioFile);
 
-	finish_logging(&logs);
-
 	return rc;
+}
+
+void yasp_log(void *user_data, err_lvl_t el, const char *fmt, ...)
+{
+	struct yasp_logs *logs = user_data;
+	va_list ap;
+
+	if (!logs || !logs->lg_error || !logs->lg_info)
+		return;
+
+	va_start(ap, fmt);
+	if (el == ERR_INFO || el == ERR_DEBUG ||
+	    el == ERR_INFOCONT)
+		vfprintf(logs->lg_info, fmt, ap);
+	else
+		vfprintf(logs->lg_error, fmt, ap);
+	va_end(ap);
+}
+
+void yasp_setup_logging(struct yasp_logs *logs, err_cb_f cb,
+			const char *logfile)
+{
+	char *err_logfile;
+	const char *err_ext = "_err";
+
+	if (!cb)
+		cb = yasp_log;
+
+	if (!logfile || !logs)
+		return;
+
+	err_logfile = calloc(1, strlen(logfile) + strlen(err_ext) + 1);
+	if (!err_logfile) {
+		fprintf(stderr, "no memory\n");
+		return;
+	}
+
+	strcpy(err_logfile, logfile);
+	strcat(err_logfile, err_ext);
+	logs->lg_error = fopen(err_logfile, "a");
+	logs->lg_info = fopen(logfile, "a");
+
+	free(err_logfile);
+
+	if (!logs->lg_error || !logs->lg_info)
+		return;
+
+	redirect_ps_log(cb, logs);
+}
+
+void yasp_finish_logging(struct yasp_logs *logs)
+{
+	if (!logs)
+		return;
+
+	if (logs->lg_error)
+		fclose(logs->lg_error);
+
+	if (logs->lg_info)
+		fclose(logs->lg_info);
 }
 
 int
@@ -1041,6 +914,7 @@ main(int argc, char *argv[])
 	const char *output = NULL;
 	const char *logfile = "default_log";
 	struct list_head word_list;
+	struct yasp_logs logs;
 
 	INIT_LIST_HEAD(&word_list);
 
@@ -1085,15 +959,18 @@ main(int argc, char *argv[])
 		return -1;
 	}
 
-	rc = yasp_interpret(audioFile, transcript, output, genpath,
-			    logfile);
+	yasp_setup_logging(&logs, NULL, logfile);
+
+	rc = yasp_interpret(audioFile, transcript, output, genpath);
 	if (rc)
 		E_ERROR("Failed to interpret audio file %s\n",
 			audioFile);
 
-	rc = yasp_interpret_hypothesis(audioFile, transcript, logfile,
-				       &word_list);
-	yasp_free_segment_list(&word_list);
+	//rc = yasp_interpret_hypothesis(audioFile, transcript, genpath,
+	//			       &word_list);
+	//yasp_free_segment_list(&word_list);
+
+	yasp_finish_logging(&logs);
 
 	return rc;
 }

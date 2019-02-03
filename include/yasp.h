@@ -47,7 +47,7 @@ struct yasp_logs {
  *	interpret speech clip and return a list of words and times
  */
 int yasp_interpret_hypothesis(const char *faudio, const char *ftranscript,
-			      const char *logfile,
+			      const char *genpath,
 			      struct list_head *word_list);
 
 /*
@@ -55,7 +55,7 @@ int yasp_interpret_hypothesis(const char *faudio, const char *ftranscript,
  *	interpret speech clip and return a list of phonemes and times
  */
 int yasp_interpret_phonemes(const char *faudio, const char *ftranscript,
-			    const char *logfile,
+			    const char *genpath,
 			    struct list_head *phoneme_list);
 
 /*
@@ -63,8 +63,7 @@ int yasp_interpret_phonemes(const char *faudio, const char *ftranscript,
  *	interpret speech and write json file
  */
 int yasp_interpret(const char *audioFile, const char *transcript,
-		   const char *output, const char *genpath,
-		   const char *logfile);
+		   const char *output, const char *genpath);
 
 /*
  * yasp_interpret_breadown
@@ -72,7 +71,6 @@ int yasp_interpret(const char *audioFile, const char *transcript,
  */
 int yasp_interpret_breadown(const char *audioFile, const char *transcript,
 			    const char *output, const char *genpath,
-			    const char *logfile,
 			    struct list_head *word_list,
 			    struct list_head *phoneme_list);
 
@@ -100,13 +98,6 @@ int yasp_create_json(struct list_head *word_list,
 void yasp_log(void *user_data, err_lvl_t el, const char *fmt, ...);
 
 /*
- * yasp_redirect_ps_log
- *	redirect the logging by calling the provided cb instead of
- *	standard frpintf
- */
-void yasp_redirect_ps_log(err_cb_f cb, struct yasp_logs *logs);
-
-/*
  * yasp_pprint_segment_list
  *	pretty print a provided segment list
  */
@@ -125,4 +116,12 @@ void yasp_print_segment_list(struct list_head *seg_list);
  */
 void yasp_free_segment_list(struct list_head *seg_list);
 
+/*
+ * Setup logging to a log file
+ *	cb: if NULL yasp_log is used
+ * Finalize log files.
+ */
+void yasp_setup_logging(struct yasp_logs *logs, err_cb_f cb,
+			const char *logfile);
+void yasp_finish_logging(struct yasp_logs *logs);
 #endif /* SPEECH_PARSER_H */
