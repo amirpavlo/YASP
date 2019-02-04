@@ -86,7 +86,7 @@ You can also just feed in the .wav file without specifying a transcript for the 
 ```
 Note: a transcript is generated automatically and put in the current dir. It's named "generated_hypothesis"
 
-#### Withut Transcript and Specify Path
+#### Without Transcript and Specify Path
 You can specify the path to the generated transcript if you'd like to organize your output. This is an absolute path to the file to write the generated hypothesis to.
 ```
 ./run -a </path/to/audiofile.wave> -o </path/to/output.json> -g </path/to/generated_transcript.txt>
