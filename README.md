@@ -98,3 +98,4 @@ You can specify the path to the generated transcript if you'd like to organize y
 ## Future Improvements
 1. Take microphone input
 2. Integrate with audio re-sampling library to remove the 16kHz limitation.
+3. better transcript parser. Names are not recognized. How do we deal with it?

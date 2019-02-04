@@ -56,6 +56,7 @@ static ps_decoder_t *get_ps(bool word, cmd_ln_t **config_pp)
 				"-lm", MODELDIR "/en-us/en-us.lm.bin",
 				"-dict", MODELDIR "/en-us/cmudict-en-us.dict",
 				"-dictcase", "yes",
+				"-backtrace", "yes",
 				NULL);
 	} else {
 		config = cmd_ln_init(NULL, ps_args(), TRUE,
@@ -225,6 +226,9 @@ static void *cache_file(FILE *fh, size_t *size)
 	size_t nbytes;
 	void *buf;
 
+	if (!fh)
+		return NULL;
+
 	/* go to the end of the file */
 	fseek(fh, 0, SEEK_END);
 	/* count the number of bytes in the file */
@@ -250,20 +254,67 @@ static void *cache_file(FILE *fh, size_t *size)
 	return buf;
 }
 
+static char *advance_transcript(char *text, struct list_head *word_list)
+{
+	struct yasp_word *word = NULL;
+	char *cur = text;
+	char *end = text + strlen(text);
+
+	if (!text || !word_list) {
+		E_ERROR("bad parameters\n");
+		return NULL;
+	}
+
+	list_for_each_entry(word, word_list, ph_on_list) {
+		char *del = cur;
+		char tmp;
+
+		if (cur > end)
+			break;
+
+		while (*del != ' ' &&
+		       *del != '\n' &&
+		       *del != '\t' &&
+		       *del != '\r' &&
+		       del <= end)
+			del++;
+
+		tmp = *del;
+		*del = '\0';
+
+		if (strcmp(word->ph_word, cur))
+			return NULL;
+
+		*del = tmp;
+		if (del <= end)
+			cur = del++;
+		else
+			cur = del;
+	}
+
+
+	return cur;
+}
+
 static int interpret(FILE *fh, struct list_head *word_list,
 		     struct list_head *phoneme_list,
 		     FILE *transcript_fh, bool word)
 {
-	int16 buf[512];
+	int16 buf[2048];
 	int rc = 0;
 	ps_decoder_t *ps = NULL;
 	cmd_ln_t *config = NULL;
-	char *text;
+	char *text = NULL;
 	ps_alignment_t *alignment = NULL;
+	uint8 utt_started, in_speech;
+	int32 nsamp;
 
 	ps = get_ps(word, &config);
 	if (!ps)
 		goto out;
+
+	if (!transcript_fh)
+		goto skip_transcript;
 
 	text = cache_file(transcript_fh, NULL);
 	if (!text)
@@ -281,24 +332,62 @@ static int interpret(FILE *fh, struct list_head *word_list,
 		goto out;
 	}
 
+skip_transcript:
 	rc = ps_start_utt(ps);
 
-	while (!feof(fh)) {
-		size_t nsamp;
-		nsamp = fread(buf, 2, 512, fh);
+	while ((nsamp = fread(buf, sizeof(int16), 2048, fh)) > 0) {
+		char *cur_transcript = NULL;
+
 		rc = ps_process_raw(ps, buf, nsamp, FALSE, FALSE);
+		in_speech = ps_get_in_speech(ps);
+		if (in_speech && !utt_started)
+			utt_started = true;
+		if (!in_speech && utt_started) {
+			ps_end_utt(ps);
+			/*
+			 * parse the hypothesis to get the time
+			 * information.
+			 * Advance the transcript to the point it was
+			 * recognized.
+			 * Start a new search
+			 */
+			if ((rc = parse_segments(ps, word_list)))
+				goto out;
+			cur_transcript = advance_transcript(text,
+							    word_list);
+			if (!cur_transcript)
+				goto out;
+			if (alignment)
+				ps_alignment_free(alignment);
+			alignment = NULL;
+			rc = set_align(ps, "align", cur_transcript,
+				       &alignment);
+			if (rc) {
+				E_ERROR("set_align failed\n");
+				goto out;
+			}
+
+			if (ps_set_search(ps, "align")) {
+				E_ERROR("ps_set_search() failed\n");
+				rc = -1;
+				goto out;
+			}
+
+			ps_start_utt(ps);
+			utt_started = false;
+		}
 	}
 
 	rc = ps_end_utt(ps);
 
-	if (parse_segments(ps, word_list))
-		rc = -1;
+	if ((rc = parse_segments(ps, word_list)))
+		goto out;
 
 	if (!phoneme_list)
 		goto out;
-
+/*
 	rc = parse_alignment(ps, alignment, phoneme_list);
-
+*/
 out:
 	if (alignment)
 		ps_alignment_free(alignment);
@@ -926,6 +1015,7 @@ main(int argc, char *argv[])
 		{ .name = "genpath", .has_arg = required_argument, .val = 'g' },
 		{ .name = "logfile", .has_arg = required_argument, .val = 'l' },
 		{ .name = "help", .has_arg = no_argument, .val = 'h' },
+		{ .name = NULL },
 	};
 
 	while ((opt = getopt_long(argc, argv, short_options,
