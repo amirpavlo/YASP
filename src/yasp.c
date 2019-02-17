@@ -623,22 +623,20 @@ consolidate(const char *audioFile, const char *transcript,
  *   ],
  * }
  */
-int yasp_create_json(struct list_head *word_list,
-		     struct list_head *phoneme_list,
-		     const char *output)
+char *yasp_create_json(struct list_head *word_list,
+		       struct list_head *phoneme_list)
 {
 	struct yasp_word *word;
 	struct yasp_word *phoneme;
 	struct list_head *cur;
-	FILE *json_fh;
 	int next_time;
-	char *string;
+	char *string = NULL;
 	cJSON *jroot, *jword, *jwords;
 	cJSON *jphoneme, *jphonemes;
 
 	if (!word_list || !phoneme_list) {
 		E_ERROR("bad parameter list\n");
-		return -1;
+		return NULL;
 	}
 
 	jroot = cJSON_CreateObject();
@@ -705,18 +703,39 @@ skip_phoneme:
 		goto end;
 	}
 
-	json_fh = fopen(output, "w");
-	if (!json_fh) {
-		E_ERROR("Failed to open output: %s\n", output);
+end:
+	cJSON_Delete(jroot);
+	return string;
+}
+
+int yasp_create_json_file(struct list_head *word_list,
+			  struct list_head *phoneme_list,
+			  const char *output)
+{
+	FILE *json_fh;
+	char *json_str;
+	int rc = 0;
+
+	json_str = yasp_create_json(word_list, phoneme_list);
+	if (!json_str) {
+		rc = -EINVAL;
 		goto end;
 	}
 
-	fprintf(json_fh, "%s", string);
+	json_fh = fopen(output, "w");
+	if (!json_fh) {
+		E_ERROR("Failed to open output: %s\n", output);
+		rc = -errno;
+		goto end;
+	}
+
+	fprintf(json_fh, "%s", json_str);
 	fclose(json_fh);
 
 end:
-	cJSON_Delete(jroot);
-	return 0;
+	if (json_str)
+		free(json_str);
+	return rc;
 }
 
 int yasp_interpret_hypothesis(const char *faudio, const char *ftranscript,
@@ -775,8 +794,10 @@ int yasp_interpret_phonemes(const char *faudio, const char *ftranscript,
 	return rc;
 }
 
-int yasp_interpret(const char *audioFile, const char *transcript,
-		   const char *output, const char *genpath)
+static int
+yasp_interpret_helper(const char *audioFile, const char *transcript,
+		      const char *output, const char *genpath,
+		      char **json, bool write)
 {
 	int rc;
 	struct list_head word_list;
@@ -796,14 +817,23 @@ int yasp_interpret(const char *audioFile, const char *transcript,
 		goto out;
 	}
 
-	if (!output)
-		goto out;
+	if (write) {
+		if (!output)
+			goto out;
 
-	rc = yasp_create_json(&word_list, &phoneme_list, output);
-	if (rc) {
-		E_ERROR("Failed to create json file: %s\n",
-			output);
-		goto out;
+		rc = yasp_create_json_file(&word_list, &phoneme_list,
+					   output);
+		if (rc) {
+			E_ERROR("Failed to create json file: %s\n",
+				output);
+			goto out;
+		}
+	} else {
+		if (!json) {
+			rc = -EINVAL;
+			goto out;
+		}
+		*json = yasp_create_json(&word_list, &phoneme_list);
 	}
 
 out:
@@ -815,6 +845,31 @@ out:
 	yasp_free_segment_list(&phoneme_list);
 
 	return rc;
+}
+
+char *
+yasp_interpret_get_str(const char *audioFile,
+		       const char *transcript,
+		       const char *genpath)
+{
+	int rc;
+	char *json = NULL;
+
+	rc = yasp_interpret_helper(audioFile, transcript, NULL,
+				   genpath, &json, false);
+
+	if (rc)
+		return NULL;
+
+	return json;
+}
+
+int
+yasp_interpret(const char *audioFile, const char *transcript,
+	       const char *output, const char *genpath)
+{
+	return yasp_interpret_helper(audioFile, transcript, output,
+				     genpath, NULL, true);
 }
 
 int yasp_interpret_breadown(const char *audioFile, const char *transcript,

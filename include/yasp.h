@@ -66,6 +66,13 @@ int yasp_interpret(const char *audioFile, const char *transcript,
 		   const char *output, const char *genpath);
 
 /*
+ * yasp_interpret_get_str
+ *	interpret speech and get a json string
+ */
+char *yasp_interpret_get_str(const char *audioFile, const char *transcript,
+			     const char *genpath);
+
+/*
  * yasp_interpret_breadown
  *	interpret script and return the word and phoneme list
  */
@@ -82,14 +89,19 @@ int yasp_parse_transcript(struct list_head *transcript, FILE *fh);
 
 /*
  * yasp_create_json
- *	create a json file of the word and phoneme list
+ * yasp_create_json_file
+ *	yasp_create_json() returns a json string of the word and
+ *	phoneme list
  *	The assumption here is the two lists have been consolidated time
  *	wise. IE the timing matches
- *	output is written to the given path.
+ *	yasp_create_json_file() writes the output to the given path
  */
-int yasp_create_json(struct list_head *word_list,
-		     struct list_head *phoneme_list,
-		     const char *output);
+char *yasp_create_json(struct list_head *word_list,
+		       struct list_head *phoneme_list);
+
+int yasp_create_json_file(struct list_head *word_list,
+			  struct list_head *phoneme_list,
+			  const char *output);
 
 /*
  * yasp_log
