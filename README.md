@@ -70,6 +70,12 @@ run.sh is used to run YASP.
 ./setup.sh
 ./compile.sh
 ```
+### Makefile Added
+A makefile has been added so YASP can be compiled as follows:
+```
+./setup.sh
+make
+```
 
 ### Running Examples
 #### With Transcript
@@ -90,6 +96,16 @@ Note: a transcript is generated automatically and put in the current dir. It's n
 You can specify the path to the generated transcript if you'd like to organize your output. This is an absolute path to the file to write the generated hypothesis to.
 ```
 ./run -a </path/to/audiofile.wave> -o </path/to/output.json> -g </path/to/generated_transcript.txt>
+```
+#### With python
+```
+./run_python
+>> import src.yasp as yasp
+>> logs = yasp.yasp_logs()
+>> yasp.yasp_setup_logging(logs, None, "TmpLogs")
+>> str = yasp_interpret_get_str("/path/to/audiofile.wav", "/path/to/audiofile.txt", None)
+>> print(str)
+>> yas.yasp_finish_logging(logs)
 ```
 
 ## Sample Rate Limitation
