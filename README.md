@@ -75,7 +75,10 @@ A makefile has been added so YASP can be compiled as follows:
 ```
 ./setup.sh
 make
+make package
 ```
+"make package" create a yasp-package.tar.gz which includes all the bits needed to run yasp.
+This tar.gz file can be untarred in any location and used
 
 ### Running Examples
 #### With Transcript
