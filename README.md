@@ -98,6 +98,8 @@ You can specify the path to the generated transcript if you'd like to organize y
 ./run -a </path/to/audiofile.wave> -o </path/to/output.json> -g </path/to/generated_transcript.txt>
 ```
 #### With python
+Python 3.x is required. Currently run_python uses 3.7, but you can change that to the version installed on your machine. The run_python script simply sets the LD_LIBRARY_PATH properly.
+
 ```
 export LD_LIBRARY_PATH=$PWD/sphinxinstall/lib/:$PWD/src
 ./run_python
