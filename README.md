@@ -99,8 +99,9 @@ You can specify the path to the generated transcript if you'd like to organize y
 ```
 #### With python
 ```
+export LD_LIBRARY_PATH=$PWD/sphinxinstall/lib/:$PWD/src
 ./run_python
->> import src.yasp as yasp
+>> import yasp
 >> logs = yasp.yasp_logs()
 >> yasp.yasp_setup_logging(logs, None, "TmpLogs")
 >> str = yasp_interpret_get_str("/path/to/audiofile.wav", "/path/to/audiofile.txt", None)
