@@ -51,5 +51,5 @@ $(EXECUTABLE): $(OBJECTS)
 	$(CC) $(OBJECTS) -DMODELDIR=\"$(SPHINX_MODELDIR)\" -o $@ $(LDFLAGS)
 
 clean:
-	rm src/*.o src/*.so src/yasp src/*.py* src/*_wrap.c
+	rm src/*.o src/*.so src/yasp src/yasp.py* src/*_wrap.c
 

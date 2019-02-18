@@ -34,6 +34,8 @@
 #include "yasp.h"
 #include "cJSON.h"
 
+char *g_modeldir = NULL;
+
 static void redirect_ps_log(err_cb_f cb, struct yasp_logs *logs)
 {
 	/* disable pocketsphinx logging */
@@ -45,46 +47,60 @@ static void redirect_ps_log(err_cb_f cb, struct yasp_logs *logs)
 	err_set_callback(cb, logs);
 }
 
-static ps_decoder_t *get_ps(bool word, cmd_ln_t **config_pp)
+static ps_decoder_t *get_ps(cmd_ln_t **config_pp)
 {
 	cmd_ln_t *config = *config_pp;
-	ps_decoder_t *ps;
+	ps_decoder_t *ps = NULL;
+	char *hmm, *lm, *dict;
 
-	if (word) {
-		config = cmd_ln_init(NULL, ps_args(), TRUE,
-				"-hmm", MODELDIR "/en-us/en-us",
-				"-lm", MODELDIR "/en-us/en-us.lm.bin",
-				"-dict", MODELDIR "/en-us/cmudict-en-us.dict",
-				"-dictcase", "yes",
-				"-backtrace", "yes",
-				"-dither", "yes",
-				"-remove_silence", "no",
-				"-cmn", "batch",
-				NULL);
+	/* NOTE: the '/' will need to change to support other OSs */
+	if (g_modeldir) {
+		hmm = string_join(g_modeldir, "/en-us/en-us", NULL);
+		lm = string_join(g_modeldir, "/en-us/en-us.lm.bin", NULL);
+		dict = string_join(g_modeldir, "/en-us/cmudict-en-us.dict",
+				   NULL);
 	} else {
-		config = cmd_ln_init(NULL, ps_args(), TRUE,
-				"-hmm", MODELDIR "/en-us/en-us",
-				"-lm", MODELDIR "/en-us/en-us.lm.bin",
-				"-allphone", MODELDIR "/en-us/en-us-phone.lm.bin",
-				"-backtrace", "yes",
-				"-beam", "le-20",
-				"-pbeam", "le-20",
-				"-lw", "2.0",
-				"-dict", MODELDIR "/en-us/cmudict-en-us.dict",
-				"-dictcase", "yes",
-				NULL);
+		hmm = string_join(MODELDIR, "/en-us/en-us", NULL);
+		lm = string_join(MODELDIR, "/en-us/en-us.lm.bin", NULL);
+		dict = string_join(MODELDIR, "/en-us/cmudict-en-us.dict",
+				   NULL);
 	}
+
+	if (!hmm || !lm || !dict) {
+		E_ERROR("Failed to allocate ps_decoder_t. No memory\n");
+		goto out;
+	}
+
+	config = cmd_ln_init(NULL, ps_args(), TRUE,
+			"-hmm", hmm,
+			"-lm", lm,
+			"-dict", dict,
+			"-dictcase", "yes",
+			"-backtrace", "yes",
+			"-dither", "yes",
+			"-remove_silence", "no",
+			"-cmn", "batch",
+			"-beam", "le-20",
+			"-pbeam", "le-20",
+			"-lw", "2.0",
+			NULL);
 
 	if (!config) {
 		E_ERROR("Failed to create config object, see log for details\n");
-		return NULL;
+		goto out;
 	}
 
 	ps = ps_init(config);
-	if (!ps) {
+	if (!ps)
 		E_ERROR("Failed to create recognizer, see log for details\n");
-		return NULL;
-	}
+
+out:
+	if (hmm)
+		ckd_free(hmm);
+	if (lm)
+		ckd_free(lm);
+	if (dict)
+		ckd_free(dict);
 
 	return ps;
 }
@@ -254,7 +270,7 @@ static void *cache_file(FILE *fh, size_t *size)
 
 static int interpret(FILE *fh, struct list_head *word_list,
 		     struct list_head *phoneme_list,
-		     FILE *transcript_fh, bool word)
+		     FILE *transcript_fh)
 {
 	int rc = 0;
 	ps_decoder_t *ps = NULL;
@@ -262,7 +278,7 @@ static int interpret(FILE *fh, struct list_head *word_list,
 	char *text = NULL;
 	ps_alignment_t *alignment = NULL;
 
-	ps = get_ps(word, &config);
+	ps = get_ps(&config);
 	if (!ps)
 		goto out;
 
@@ -355,7 +371,7 @@ static int get_utterance(FILE *fh, FILE *transcript_fh,
 	 * that to get the phonemes
 	 */
 	if (!transcript_fh) {
-		rc = interpret(fh, &local_hypothesis, NULL, NULL, true);
+		rc = interpret(fh, &local_hypothesis, NULL, NULL);
 		if (rc)
 			return rc;
 		local_fh
@@ -365,13 +381,18 @@ static int get_utterance(FILE *fh, FILE *transcript_fh,
 			return rc;
 	}
 
-	rc = interpret(fh, word_list, phoneme_list, local_fh,
-		       true);
+	rc = interpret(fh, word_list, phoneme_list, local_fh);
 
 	if (!local_fh)
 		fclose(local_fh);
 
 	return rc;
+}
+
+void yasp_set_modeldir(const char *modeldir)
+{
+	if (!modeldir)
+		g_modeldir = (char*) modeldir;
 }
 
 void yasp_free_segment_list(struct list_head *seg_list)
@@ -971,13 +992,14 @@ main(int argc, char *argv[])
 
 	INIT_LIST_HEAD(&word_list);
 
-	const char *const short_options = "a:t:h:o:g:l:";
+	const char *const short_options = "a:t:o:g:l:m:h";
 	static const struct option long_options[] = {
 		{ .name = "audio", .has_arg = required_argument, .val = 'a' },
 		{ .name = "transcript", .has_arg = required_argument, .val = 't' },
 		{ .name = "output", .has_arg = required_argument, .val = 'o' },
 		{ .name = "genpath", .has_arg = required_argument, .val = 'g' },
 		{ .name = "logfile", .has_arg = required_argument, .val = 'l' },
+		{ .name = "modeldir", .has_arg = required_argument, .val = 'm' },
 		{ .name = "help", .has_arg = no_argument, .val = 'h' },
 		{ .name = NULL },
 	};
@@ -996,6 +1018,9 @@ main(int argc, char *argv[])
 			break;
 		case 'g':
 			genpath = optarg;
+			break;
+		case 'm':
+			yasp_set_modeldir(optarg);
 			break;
 		case 'h':
 			printf("Usage: \n"

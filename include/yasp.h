@@ -136,4 +136,7 @@ void yasp_free_segment_list(struct list_head *seg_list);
 void yasp_setup_logging(struct yasp_logs *logs, err_cb_f cb,
 			const char *logfile);
 void yasp_finish_logging(struct yasp_logs *logs);
+
+/* explicitly set the model directory */
+void yasp_set_modeldir(const char *modeldir);
 #endif /* SPEECH_PARSER_H */
