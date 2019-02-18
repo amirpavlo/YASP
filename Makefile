@@ -26,7 +26,7 @@ SWIG_OBJS=$(SWIG_SRCS:.c=.o)
 EXECUTABLE=src/yasp
 PYTHON_YASP_LIB=src/_yasp.so
 
-all: swig $(EXECUTABLE)
+all: swig $(EXECUTABLE) copy
 check:
 	@echo "swig files: $(SWIG_FILES)"
 
@@ -44,12 +44,29 @@ swig: swig_gen
 	$(MAKE) build_swig_shared
 
 %.o: %.c
-	@echo "BBBBBBBBBB" $< $@
 	$(CC) $(CFLAGS) $(INCLUDE) -DMODELDIR=\"$(SPHINX_MODELDIR)\" $< -o $@
 
 $(EXECUTABLE): $(OBJECTS)
 	$(CC) $(OBJECTS) -DMODELDIR=\"$(SPHINX_MODELDIR)\" -o $@ $(LDFLAGS)
 
+package:
+	@mkdir -p yaspinstall
+	@rm -Rf yaspinstall/*
+	@cp -Rf sphinxinstall/ yaspinstall/
+	@cp -Rf yaspbin/ yaspinstall/
+	@cp -Rf run_python yaspinstall/
+	@cp -Rf run yaspinstall/
+	@tar -zcf yasp-package.tar.gz yaspinstall
+	@rm -Rf yaspinstall/
+
+copy:
+	@mkdir -p yaspbin
+	@rm -Rf yaspbin/*
+	@/bin/cp -Rf src/yasp yaspbin/
+	@/bin/cp -Rf src/yasp.py yaspbin/
+	@/bin/cp -Rf src/_yasp.so yaspbin/
+	@/bin/cp -Rf src/yasp_setup.py yaspbin/
+
 clean:
-	rm src/*.o src/*.so src/yasp src/yasp.py* src/*_wrap.c
+	@rm -Rf yaspbin/ yaspinstall/ src/*.o src/*.so src/yasp src/yasp.py* src/*_wrap.c yasp-package.tar.gz
 
