@@ -27,6 +27,7 @@ extern void yasp_setup_logging(struct yasp_logs *logs, err_cb_f cb,
                                const char *logfile);
 extern void yasp_finish_logging(struct yasp_logs *logs);
 extern void yasp_set_modeldir(const char *modeldir);
+extern void yasp_free_json_str(char *json);
 %}
 
 struct yasp_logs {
@@ -55,4 +56,5 @@ extern void yasp_setup_logging(struct yasp_logs *logs, err_cb_f cb,
                                const char *logfile);
 extern void yasp_finish_logging(struct yasp_logs *logs);
 extern void yasp_set_modeldir(const char *modeldir);
+extern void yasp_free_json_str(char *json);
 

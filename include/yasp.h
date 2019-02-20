@@ -73,6 +73,12 @@ char *yasp_interpret_get_str(const char *audioFile, const char *transcript,
 			     const char *genpath);
 
 /*
+ * yasp_free_json_str
+ *	Free the JSON string returned in yasp_interpret_get_str()
+ */
+void yasp_free_json_str(char *json);
+
+/*
  * yasp_interpret_breadown
  *	interpret script and return the word and phoneme list
  */

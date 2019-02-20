@@ -868,6 +868,12 @@ out:
 	return rc;
 }
 
+void yasp_free_json_str(char *json)
+{
+	if (json)
+		free(json);
+}
+
 char *
 yasp_interpret_get_str(const char *audioFile,
 		       const char *transcript,
