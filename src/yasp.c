@@ -1030,8 +1030,10 @@ main(int argc, char *argv[])
 			break;
 		case 'h':
 			printf("Usage: \n"
-			       "sparser </path/to/audio/file> "
-			       "</path/to/audio/transcript>\n");
+			       "run -a </path/to/audio/file> "
+			       "-t [</path/to/audio/transcript>] "
+                   "-g [</path/to/genfile>] "
+                   "-m [</path/to/modeldir>]\n");
 			return -1;
 		default:
 			E_ERROR("Unknown command line option\n");
