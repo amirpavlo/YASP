@@ -47,9 +47,9 @@ static void redirect_ps_log(err_cb_f cb, struct yasp_logs *logs)
 	err_set_callback(cb, logs);
 }
 
-static ps_decoder_t *get_ps(cmd_ln_t **config_pp)
+static ps_decoder_t *get_ps(void)
 {
-	cmd_ln_t *config = *config_pp;
+	cmd_ln_t *config = NULL;
 	ps_decoder_t *ps = NULL;
 	char *hmm, *lm, *dict;
 
@@ -101,6 +101,8 @@ out:
 		ckd_free(lm);
 	if (dict)
 		ckd_free(dict);
+	if (config)
+		cmd_ln_free_r(config);
 
 	return ps;
 }
@@ -274,11 +276,10 @@ static int interpret(FILE *fh, struct list_head *word_list,
 {
 	int rc = 0;
 	ps_decoder_t *ps = NULL;
-	cmd_ln_t *config = NULL;
 	char *text = NULL;
 	ps_alignment_t *alignment = NULL;
 
-	ps = get_ps(&config);
+	ps = get_ps();
 	if (!ps)
 		goto out;
 
@@ -317,8 +318,6 @@ out:
 		ps_alignment_free(alignment);
 	if (ps)
 		ps_free(ps);
-	if (config)
-		cmd_ln_free_r(config);
 	if (text)
 		free(text);
 
@@ -381,6 +380,7 @@ static int get_utterance(FILE *fh, FILE *transcript_fh,
 			return rc;
 	}
 
+	fseek(fh, 0, SEEK_SET);
 	rc = interpret(fh, word_list, phoneme_list, local_fh);
 
 	if (!local_fh)

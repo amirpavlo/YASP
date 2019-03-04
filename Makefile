@@ -11,7 +11,7 @@ SWIG_BIN=swig
 CFLAGS=-g -Wall -Werror -fPIC -c
 SPHINX_INCLUDE=$(shell export PKG_CONFIG_PATH=$(INSTALL_DIR)/lib/pkgconfig/;pkg-config --cflags pocketsphinx sphinxbase)
 ROOT_DIR=$(PWD)
-INCLUDE=-I/usr/include/python3.7 -I /usr/include/python3.7/ -I $(ROOT_DIR)/pocketsphinx/src/libpocketsphinx/ -I $(ROOT_DIR)/include -I $(ROOT_DIR)/sphinxbase/include/sphinxbase/ $(SPHINX_INCLUDE)
+INCLUDE=-I/usr/include/python3.6 -I /usr/include/python3.7/ -I $(ROOT_DIR)/pocketsphinx/src/libpocketsphinx/ -I $(ROOT_DIR)/include -I $(ROOT_DIR)/sphinxbase/include/sphinxbase/ $(SPHINX_INCLUDE)
 SPHINX_LDFLAGS=$(shell export PKG_CONFIG_PATH=$(INSTALL_DIR)/lib/pkgconfig/;pkg-config --libs pocketsphinx sphinxbase)
 SPHINX_MODELDIR=$(shell export PKG_CONFIG_PATH=$(INSTALL_DIR)/lib/pkgconfig/;pkg-config --variable=modeldir pocketsphinx)
 LDFLAGS=$(SPHINX_LDFLAGS)
