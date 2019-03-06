@@ -80,9 +80,9 @@ static ps_decoder_t *get_ps(void)
 			"-dither", "yes",
 			"-remove_silence", "no",
 			"-cmn", "batch",
-			"-beam", "le-20",
-			"-pbeam", "le-20",
-			"-lw", "2.0",
+			//"-beam", "le-20",
+			//"-pbeam", "le-20",
+			//"-lw", "2.0",
 			NULL);
 
 	if (!config) {
