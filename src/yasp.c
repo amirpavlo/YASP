@@ -389,10 +389,24 @@ static int get_utterance(FILE *fh, FILE *transcript_fh,
 	return rc;
 }
 
-void yasp_set_modeldir(const char *modeldir)
+int yasp_set_modeldir(const char *modeldir)
 {
-	if (!modeldir)
-		g_modeldir = (char*) modeldir;
+	char *m = NULL;
+
+	if (modeldir) {
+		m = calloc(1, strlen(modeldir) + 1);
+		if (!m) {
+			E_ERROR("out of memory\n");
+			return -ENOMEM;
+		}
+		strncpy(m, modeldir, strlen(modeldir));
+
+		if (g_modeldir)
+			free(g_modeldir);
+		g_modeldir = m;
+	}
+
+	return 0;
 }
 
 void yasp_free_segment_list(struct list_head *seg_list)

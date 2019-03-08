@@ -144,5 +144,5 @@ void yasp_setup_logging(struct yasp_logs *logs, err_cb_f cb,
 void yasp_finish_logging(struct yasp_logs *logs);
 
 /* explicitly set the model directory */
-void yasp_set_modeldir(const char *modeldir);
+int yasp_set_modeldir(const char *modeldir);
 #endif /* SPEECH_PARSER_H */
