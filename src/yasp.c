@@ -225,7 +225,6 @@ static int set_align(ps_decoder_t *ps, const char *name,
 		if ((wid = dict_wordid(ps->dict, word)) == BAD_S3WID) {
 			E_ERROR("Unknown word %s\n", word);
 			ckd_free(textbuf);
-			ps_alignment_free(*alignment);
 			return -1;
 		}
 		ps_alignment_add_word(*alignment, wid, 0);
